@@ -172,7 +172,9 @@ let dev = null, cmdChar = null, rxBuf = [], rxWaiter = null;
 
 $("bleSupport").textContent = navigator.bluetooth
   ? "Power the diagnostic tool, then Connect. Your phone keeps its normal internet - no need to join the tool's WiFi."
-  : "This browser has no Web Bluetooth (iPhone/Safari, Firefox, or not HTTPS). Use Import file with a JSON saved from the tool's WiFi page (/data or /snapshots).";
+  : /iPhone|iPad|iPod/.test(navigator.userAgent)
+    ? "iPhone browsers (Safari, Chrome...) can't use Bluetooth. Open this page in the free \"Bluefy\" browser from the App Store instead - or use Import file with a JSON saved from the tool's WiFi page (/data or /snapshots)."
+    : "This browser has no Web Bluetooth (Firefox, or not HTTPS). Use Chrome/Edge, or Import file with a JSON saved from the tool's WiFi page (/data or /snapshots).";
 $("btnConnect").disabled = !navigator.bluetooth;
 
 function setBle(state) {
@@ -199,7 +201,9 @@ async function bleCommand(cmd, timeoutMs = 15000) {
     rxWaiter = res;
     setTimeout(() => { if (rxWaiter === res) { rxWaiter = null; rej(new Error("timeout waiting for device")); } }, timeoutMs);
   });
-  await cmdChar.writeValueWithResponse(new TextEncoder().encode(cmd));
+  const bytes = new TextEncoder().encode(cmd);
+  // Older/iOS Web Bluetooth implementations (e.g. Bluefy) may only have writeValue()
+  await (cmdChar.writeValueWithResponse ? cmdChar.writeValueWithResponse(bytes) : cmdChar.writeValue(bytes));
   return JSON.parse(await reply);
 }
 

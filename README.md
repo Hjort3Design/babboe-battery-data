@@ -15,7 +15,8 @@ The ESP32 never holds a GitHub token. The token stays in the browser that upload
 | Browser | Works? |
 |---|---|
 | Chrome / Edge on Android, Windows, macOS, ChromeOS | Yes, full BLE |
-| iPhone / iPad (any browser), Firefox | No Web Bluetooth. Use **Import file** instead (see below) |
+| iPhone / iPad | Not in Safari/Chrome (Apple's WebKit has no Web Bluetooth). Use the free **Bluefy** browser from the App Store, or **Import file** (see below) |
+| Firefox | No Web Bluetooth. Use **Import file** instead (see below) |
 
 Web Bluetooth only works on **HTTPS** pages. That is why this page can't live inside the
 firmware: the firmware serves plain `http://192.168.4.1`.
