@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "uploaded_at": "2026-09-29T18:09:16.327Z",
+  "source": "import",
+  "scan": {
+    "battery_id": "003",
+    "identity_field": "07 03 04",
+    "serial_number": "BBAPTN5203039P",
+    "stored_capacity": 65535,
+    "rated_capacity": 500,
+    "capacity_pct": 0,
+    "grade": "?",
+    "cal_cycles": 13345,
+    "charge_events": 82,
+    "session_counter": 898,
+    "session_mah": 3936,
+    "cal_measured": 3936,
+    "cell_top": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "cell_bottom": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "cell_top_spread_mv": 0,
+    "cell_bottom_spread_mv": 0,
+    "xor_errors": 4,
+    "timestamp_ms": 106789,
+    "raw_dump": "02FFFDFFFFFFFFFFFFFFFFFFFFFFFFFF520052FF08020AFF070304FFFFFFFFFF0AFFF5FFF401F5FF342115FF000000FF600F6FFFFFFFFFFF000000FF3C2814FF600F6FFF600F6FFFE02ECEFFE803EBFF820381FFFFFFFFFFFFFFFFFFFFFFFFFF9B009BFF701767FF581B43FF401F5FFF28230BFFFFFFFFFFFFFFFFFFFFFFFFFF424200FF415011FF544E1AFF353207FF303303FF303303FF395069FF505000FF504212FF415011FF444F0BFF303909FF303101FF393900FF315061FF505000FF434201FF415011FF444E0AFF343703FF303000FF353603FF345064FF505000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+    "serial_number_valid": true
+  }
+}

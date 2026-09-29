@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "uploaded_at": "2026-09-29T18:09:16.327Z",
+  "source": "import",
+  "scan": {
+    "battery_id": "001",
+    "identity_field": "07 1A 1D",
+    "serial_number": "BAPDMP24R1264P",
+    "stored_capacity": 433,
+    "rated_capacity": 500,
+    "capacity_pct": 86.6,
+    "grade": "A",
+    "cal_cycles": 13345,
+    "charge_events": 299,
+    "session_counter": 1480,
+    "session_mah": 7456,
+    "cal_measured": 7456,
+    "cell_top": [
+      4076,
+      4086,
+      4081,
+      4087,
+      4091,
+      4085,
+      4086,
+      4089
+    ],
+    "cell_bottom": [
+      3156,
+      3163,
+      3158,
+      3164,
+      3163,
+      3160,
+      3161,
+      3161
+    ],
+    "cell_top_spread_mv": 15,
+    "cell_bottom_spread_mv": 8,
+    "xor_errors": 0,
+    "timestamp_ms": 278558,
+    "raw_dump": "C0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF2B012AFFFFFFFFFF071A1DFF01B1B0FF000000FFF401F5FF342115FF010001FF201D3DFF201D3DFF000000FFFFFFFFFF201D3DFF201D3DFFFFFFFFFFFFFFFFFFC805CDFFFFFFFFFFFFFFFFFFFFFFFFFF660167FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF1B1902FF353500FF9B9B00FF424103FF504414FF4D501DFF323406FF523163FF323604FF345064FF505000FF433271FF4E317FFF324D7FFF503262FF354277FF313405FF305060FF505000FF424103FF504414FF4D501DFF323200FF533063FF313908FF305060FF505000FF4C561AFF515706FF5B550EFF56590FFF9CA33FFF9EA43AFFA3A003FFA1A100FF",
+    "serial_number_valid": true
+  }
+}

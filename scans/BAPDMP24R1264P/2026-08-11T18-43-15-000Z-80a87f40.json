@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "scanned_at": "2026-08-11T18:43:15.000Z",
+  "uploaded_at": "2026-09-29T18:09:16.327Z",
+  "source": "import",
+  "note": "historical serial-monitor capture, immediately after 'early' - captures a live calibration-event write (0x30/0x34 changed, 0x40/0x44 synced to new 0x30 value, cal_stat1-3 and cell tables populated in the same transition)",
+  "scan": {
+    "battery_id": "001",
+    "identity_field": "07 1A 1D",
+    "status_byte": "C0",
+    "rated_capacity": 500,
+    "stored_capacity": 424,
+    "capacity_pct": 84.8,
+    "cal_cycles": 13345,
+    "charge_events": 325,
+    "session_counter": 1450,
+    "cal_measured": 7456,
+    "decoded_by": "seed script from raw_dump (cop2_logger columns used an outdated register map)",
+    "raw_dump": "C0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF450144FFFFFFFFFF071A1DFF01A8A9FF000000FFF401F5FF342115FF010001FF201D3DFF201D3DFF000000FFFFFFFFFF201D3DFF201D3DFFFFFFFFFFFFFFFFFFAA05AFFFFFFFFFFFFFFFFFFFFFFFFFFF640165FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF1B1902FF353500FF9B9B00FF424103FF504414FF4D501DFF323406FF523163FF323604FF345064FF505000FF433271FF4E317FFF324D7FFF503262FF354277FF313405FF305060FF505000FF424103FF504414FF4D501DFF323200FF533063FF313908FF305060FF505000FF4C561AFF515706FF5B550EFF56590FFF9CA33FFF9EA43AFFA3A003FFA1A100FF",
+    "serial_number": "BAPDMP24R1264P",
+    "serial_number_valid": true
+  }
+}

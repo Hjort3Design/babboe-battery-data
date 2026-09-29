@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "uploaded_at": "2026-09-29T18:09:16.327Z",
+  "source": "import",
+  "scan": {
+    "battery_id": "002",
+    "identity_field": "06 06 00",
+    "serial_number": "BBAPTO4604320P",
+    "stored_capacity": 270,
+    "rated_capacity": 600,
+    "capacity_pct": 45,
+    "grade": "E",
+    "cal_cycles": 10400,
+    "charge_events": 308,
+    "session_counter": 501,
+    "session_mah": 6254,
+    "cal_measured": 11425,
+    "cell_top": [
+      4056,
+      4056,
+      4054,
+      4055,
+      4056,
+      4055,
+      4055,
+      4053
+    ],
+    "cell_bottom": [
+      3164,
+      3163,
+      3164,
+      3163,
+      3163,
+      3163,
+      3163,
+      3163
+    ],
+    "cell_top_spread_mv": 3,
+    "cell_bottom_spread_mv": 1,
+    "xor_errors": 0,
+    "timestamp_ms": 16753,
+    "raw_dump": "01FFFEFFFFFFFFFFFFFFFFFF463274FF340135FF08020AFF060600FF010E0FFF4A4A00FF58025AFFA02888FF010001FFA12C8DFFA12C8DFF000000FF0C303CFF6E1876FF6E1876FF0C303CFFE803EBFFF501F4FFFFFFFFFF041014FFD80ED6FFB200B2FFE81CF4FFD020F0FF8025A5FFCC29E5FF17180FFF363600FFA3A300FF424200FF415011FF544F1BFF343602FF303404FF333201FF305060FF505000FF504212FF415011FF444F0BFF34380CFF303101FF373502FF345064FF505000FF434201FF415011FF444F0BFF343400FF303000FF323103FF365066FF505000FF383800FF363701FF38370FFF373502FFA4A307FFA4A307FFA3A300FFA3A300FF",
+    "serial_number_valid": true
+  }
+}

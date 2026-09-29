@@ -55,6 +55,12 @@ firmware: the firmware serves plain `http://192.168.4.1`.
 3. Back on normal internet, open the companion page, tap **Import file**, and pick that
    JSON. Several snapshots go straight into the upload queue.
 
+**Import file** also accepts the `/export` scan-log CSV (`gwa_battery_scans.csv`). Older
+snapshots and CSV rows have no serial field, so the page decodes the serial from the
+dump. CSV rows have no real date (only ms since boot), so they're saved as
+`undated-<dump hash>.json`. Identical dumps collapse into one file, and anything already
+in the repo is skipped, so importing the same backup twice is harmless.
+
 ## Database layout
 
 ```

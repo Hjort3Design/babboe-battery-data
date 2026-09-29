@@ -89,7 +89,7 @@
       </div>
       <div class="btns" style="margin-top:8px">
         <button class="btn" id="btnImport">Import file</button>
-        <input type="file" id="fileIn" accept=".json,.jsonl,application/json" class="hidden">
+        <input type="file" id="fileIn" accept=".json,.jsonl,.csv,application/json,text/csv" class="hidden">
       </div>
     </div>
 
@@ -272,7 +272,27 @@ function showScan(scan, source) {
 }
 
 // ── import (iPhone / no-BLE fallback) ──────────────────────────────────────
-// Accepts the tool's /data or /scan JSON (one object), /snapshots (array), or a .jsonl log.
+// Accepts the tool's /data or /scan JSON (one object), /snapshots (array), a .jsonl log,
+// or the /export scan-log CSV (gwa_battery_scans.csv).
+function parseScanCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const head = lines.shift().split(",");
+  const num = v => v === "" ? null : Number(v);
+  return lines.map(l => {
+    const c = Object.fromEntries(l.split(",").map((v, i) => [head[i], v]));
+    const cells = p => [1, 2, 3, 4, 5, 6, 7, 8].map(i => num(c[`${p}_v${i}`]));
+    return {
+      battery_id: c.battery_id, identity_field: c.identity_field, serial_number: c.serial_number || undefined,
+      stored_capacity: num(c.stored_cap), rated_capacity: num(c.rated_cap), capacity_pct: num(c.cap_pct), grade: c.grade,
+      cal_cycles: num(c.cal_cycles), charge_events: num(c.charge_events), session_counter: num(c.session_counter),
+      session_mah: num(c.session_mah), cal_measured: num(c.cal_measured),
+      cell_top: cells("top"), cell_bottom: cells("bot"),
+      cell_top_spread_mv: num(c.top_spread_mv), cell_bottom_spread_mv: num(c.bot_spread_mv),
+      xor_errors: num(c.xor_errors), timestamp_ms: num(c.timestamp_ms), raw_dump: c.raw_hex,
+    };
+  });
+}
+
 $("btnImport").onclick = () => $("fileIn").click();
 $("fileIn").onchange = async e => {
   const f = e.target.files[0];
@@ -280,7 +300,8 @@ $("fileIn").onchange = async e => {
   if (!f) return;
   const text = await f.text();
   let items = [];
-  try {
+  if (/^battery_id,.*raw_hex/.test(text)) items = parseScanCsv(text);
+  else try {
     const parsed = JSON.parse(text);
     items = Array.isArray(parsed) ? parsed : [parsed];
   } catch {
@@ -289,8 +310,11 @@ $("fileIn").onchange = async e => {
   items = items.filter(s => s && s.raw_dump);
   if (!items.length) { log("import: no scans with a raw_dump found in that file"); return; }
   if (items.length === 1) { showScan(items[0], "import"); log("imported 1 scan - review, then Upload"); return; }
-  for (const s of items) enqueue(buildRecord(s, "import", ""));
-  log(`imported ${items.length} scans into the upload queue`);
+  const recs = new Map();  // backups often hold the same scan more than once - one file per path
+  for (const s of items) { const r = buildRecord(s, "import", ""); recs.set(r.path, r); }
+  const q = queue().filter(r => !recs.has(r.path)).concat([...recs.values()]);
+  store.set("queue", q); renderQueue();
+  log(`imported ${recs.size} scans (${items.length - recs.size} duplicates dropped) into the upload queue`);
   flushQueue();
 };
 
@@ -327,14 +351,47 @@ $("btnSaveGh").onclick = async () => {
 };
 $("btnForgetGh").onclick = () => { const c = gh(); c.token = ""; store.set("gh", c); loadGhForm(); log("token forgotten"); };
 
-// One file per scan: scans/<serial>/<UTC timestamp>.json
+// Same algorithm as decodeSerialNumber() in GWA_Battery_Diag.ino, so imported
+// snapshots from older firmware (no serial_number field) land in the same folder
+// as live BLE scans of that pack. 0x80-0x9F: [charA, charB, XOR, 0xFF] x 8, "PP" terminator.
+function serialFromRaw(hex) {
+  if (!hex || hex.length < 512) return { sn: "", ok: false };
+  const byte = i => parseInt(hex.substr(i * 2, 2), 16);
+  let sn = "", firstOk = true;
+  for (let i = 0; i < 8; i++) {
+    const at = 0x80 + i * 4, a = byte(at), b = byte(at + 1), ok = byte(at + 2) === (a ^ b);
+    if (i === 0) firstOk = ok;
+    if (!ok || (a === 0x50 && b === 0x50)) break;
+    sn += String.fromCharCode(a, b);
+  }
+  return { sn, ok: firstOk && sn.length > 0 };
+}
+
+// 32-bit FNV-1a - only used to give undated imports a stable, content-derived file name.
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
+}
+
+// One file per scan: scans/<serial>/<UTC timestamp>.json. Imports are named by their own
+// scan time (timestamp_epoch), or undated-<dump hash> when there is none (CSV rows only have
+// ms-since-boot), so re-importing the same backup maps onto the same paths and is skipped.
 function buildRecord(scan, source, note) {
   const { fleet, fs_scans, auto_save, ...clean } = scan;  // drop device-local bookkeeping
-  const serial = scan.serial_number_valid && scan.serial_number ? scan.serial_number : `unknown-${scan.battery_id || "x"}`;
-  const when = new Date().toISOString();
+  if (!clean.serial_number) {
+    const d = serialFromRaw(clean.raw_dump);
+    clean.serial_number = d.sn;
+    clean.serial_number_valid = d.ok;
+  }
+  const serial = clean.serial_number_valid && clean.serial_number ? clean.serial_number : `unknown-${scan.battery_id || "x"}`;
+  const uploaded = new Date().toISOString();
+  const dated = scan.timestamp_epoch > 1e9;
+  const scanned = dated ? new Date(scan.timestamp_epoch * 1000).toISOString() : source === "import" ? null : uploaded;
+  const name = scanned ? scanned.replace(/[:.]/g, "-") : `undated-${fnv1a(clean.raw_dump || "")}`;
   return {
-    path: `scans/${serial.replace(/[^A-Za-z0-9_-]/g, "_")}/${when.replace(/[:.]/g, "-")}.json`,
-    body: { schema: 1, uploaded_at: when, source, note: note || undefined, scan: clean },
+    path: `scans/${serial.replace(/[^A-Za-z0-9_-]/g, "_")}/${name}.json`,
+    body: { schema: 1, scanned_at: scanned || undefined, uploaded_at: uploaded, source, note: note || undefined, scan: clean },
   };
 }
 
@@ -374,7 +431,11 @@ async function flushQueue() {
   log(`uploading ${q.length} pending…`);
   while (q.length) {
     try { await putRecord(q[0]); log(`uploaded ${q[0].path}`); }
-    catch (e) { log(`upload stopped: ${e.message}`); break; }
+    catch (e) {
+      // 422 without a sha = file already exists at that path -> already uploaded earlier
+      if (/GitHub 422/.test(e.message)) log(`skipped (already in repo) ${q[0].path}`);
+      else { log(`upload stopped: ${e.message}`); break; }
+    }
     q.shift(); store.set("queue", q); renderQueue();
   }
 }
