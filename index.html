@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GWA Battery Companion</title>
+<!--
+  Companion page for GWA_Battery_Diag over Bluetooth LE + GitHub scan database.
+  Must be served over HTTPS (e.g. GitHub Pages) - Web Bluetooth is blocked on plain http.
+  Works in Chrome/Edge on Android, Windows, macOS, ChromeOS. Not iOS Safari: use "Import file".
+  The GitHub token lives only in this browser's localStorage - never on the ESP32.
+-->
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0c0e10; --surface:#14171a; --s2:#1b1f23; --s3:#23282d;
+    --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.15);
+    --text:#eef1f3; --t2:#9aa1a8; --t3:#5d646b;
+    --accent:#2fd0e6; --accent-ink:#05181c;
+    --g-a:oklch(.81 .16 152); --g-b:oklch(.85 .16 122); --g-c:oklch(.84 .15 92);
+    --g-d:oklch(.75 .16 56); --g-e:oklch(.64 .21 26);
+    --font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;
+    --r:14px; --rl:18px;
+  }
+  body{background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;display:flex;justify-content:center}
+  #app{width:100%;max-width:480px;min-height:100vh}
+  .topbar{display:flex;align-items:center;gap:11px;padding:calc(env(safe-area-inset-top,0) + 14px) 16px 12px;
+    background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  .mark{width:34px;height:34px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px}
+  .topbar h1{font-size:18px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
+  .sub{font-size:11.5px;color:var(--t3);font-family:var(--mono);letter-spacing:.5px}
+  .sp{flex:1}
+  .pill{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;border:1px solid var(--line);border-radius:99px;padding:5px 9px}
+  .pill i{width:7px;height:7px;border-radius:99px;background:var(--t3)}
+  .pill.on i{background:var(--g-a);box-shadow:0 0 0 3px color-mix(in oklab,var(--g-a) 25%,transparent)}
+  main{padding:14px 16px 40px;display:flex;flex-direction:column;gap:11px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--rl);padding:16px}
+  .ch{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--t2);margin-bottom:12px;display:flex;gap:8px;align-items:center}
+  .hint{font-size:12.5px;color:var(--t3);line-height:1.5}
+  .mono{font-family:var(--mono)}
+  .row{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--line);gap:12px}
+  .row:last-child{border-bottom:none}
+  .row .k{font-size:14px;color:var(--t2)}
+  .row .v{font-size:15px;font-weight:600;font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;word-break:break-all}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .tile{background:var(--s2);border:1px solid var(--line);border-radius:var(--r);padding:13px;display:flex;flex-direction:column;gap:3px}
+  .tile .k{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);font-weight:600}
+  .tile .v{font-size:24px;font-weight:600;font-family:var(--mono);line-height:1.1}
+  .tile .u{font-size:12px;color:var(--t3)}
+  .cells{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+  .cells div{background:var(--s2);border:1px solid var(--line);border-radius:10px;padding:7px 4px;text-align:center;font:600 12.5px var(--mono)}
+  .cells div span{display:block;font-size:10px;color:var(--t3);font-weight:500}
+  .chip{display:inline-flex;align-items:center;font:600 12px var(--mono);padding:4px 9px;border-radius:99px;border:1px solid var(--line);color:var(--t2)}
+  .chip.ok{color:var(--g-a);border-color:color-mix(in oklab,var(--g-a) 40%,transparent)}
+  .chip.warn{color:var(--g-c);border-color:color-mix(in oklab,var(--g-c) 40%,transparent)}
+  .chip.bad{color:var(--g-e);border-color:color-mix(in oklab,var(--g-e) 45%,transparent)}
+  .btns{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{font:700 14px var(--font);cursor:pointer;border:none;border-radius:var(--r);text-transform:uppercase;letter-spacing:.8px;padding:13px 16px;flex:1;min-width:120px;background:var(--s3);color:var(--text)}
+  .btn.primary{background:var(--accent);color:var(--accent-ink)}
+  .btn:disabled{opacity:.35;cursor:default}
+  label{display:block;font-size:12px;color:var(--t2);margin:10px 0 4px}
+  input{width:100%;background:var(--s2);border:1px solid var(--line2);border-radius:10px;color:var(--text);padding:10px;font:14px var(--mono)}
+  details summary{cursor:pointer;list-style:none}
+  details summary::-webkit-details-marker{display:none}
+  #log{font:12px/1.5 var(--mono);color:var(--t2);white-space:pre-wrap;max-height:160px;overflow-y:auto}
+  a{color:var(--accent)}
+  .grade{font-size:34px}
+  .gA{color:var(--g-a)} .gB{color:var(--g-b)} .gC{color:var(--g-c)} .gD{color:var(--g-d)} .gE{color:var(--g-e)}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="mark">G</div>
+    <div><h1>Battery Companion</h1><div class="sub">BLE · GitHub scan DB</div></div>
+    <div class="sp"></div>
+    <div class="pill" id="blePill"><i></i><span id="bleState">offline</span></div>
+  </div>
+
+  <main>
+    <div class="card">
+      <div class="ch">Device</div>
+      <p class="hint" id="bleSupport"></p>
+      <div class="btns" style="margin-top:12px">
+        <button class="btn primary" id="btnConnect">Connect</button>
+        <button class="btn" id="btnScan" disabled>Scan pack</button>
+      </div>
+      <div class="btns" style="margin-top:8px">
+        <button class="btn" id="btnImport">Import file</button>
+        <input type="file" id="fileIn" accept=".json,.jsonl,application/json" class="hidden">
+      </div>
+    </div>
+
+    <div class="card hidden" id="scanCard">
+      <div class="ch">Scan <span class="sp"></span><span class="chip" id="xorChip"></span></div>
+      <div class="grid">
+        <div class="tile"><span class="k">Grade</span><span class="v grade" id="vGrade">–</span></div>
+        <div class="tile"><span class="k">Capacity</span><span class="v" id="vPct">–</span><span class="u" id="vCap"></span></div>
+      </div>
+      <div style="margin-top:6px">
+        <div class="row"><span class="k">Serial</span><span class="v" id="vSerial">–</span></div>
+        <div class="row"><span class="k">Status byte</span><span class="v" id="vStatus">–</span></div>
+        <div class="row"><span class="k">EC#2 risk</span><span class="v" id="vRisk">–</span></div>
+        <div class="row"><span class="k">Charge events</span><span class="v" id="vEvents">–</span></div>
+        <div class="row"><span class="k">Session counter</span><span class="v" id="vSession">–</span></div>
+      </div>
+      <label>Top-of-charge cells (mV) · spread <span id="vTopSpread">–</span></label>
+      <div class="cells" id="cellsTop"></div>
+      <label>Bottom-of-charge cells (mV) · spread <span id="vBotSpread">–</span></label>
+      <div class="cells" id="cellsBot"></div>
+      <label>Note (optional, saved with the upload)</label>
+      <input id="note" placeholder="e.g. after cell replacement, EC#2 on charger">
+      <div class="btns" style="margin-top:12px">
+        <button class="btn primary" id="btnUpload" disabled>Upload to GitHub</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ch">Upload queue <span class="sp"></span><span class="chip" id="queueChip">0 pending</span></div>
+      <p class="hint">Scans that couldn't be uploaded (no internet, bad token) wait here in this browser until you retry.</p>
+      <div class="btns" style="margin-top:12px">
+        <button class="btn" id="btnFlush" disabled>Upload pending</button>
+        <button class="btn" id="btnClearQ" disabled>Discard pending</button>
+      </div>
+    </div>
+
+    <details class="card" id="ghCard">
+      <summary class="ch">GitHub settings <span class="sp"></span><span class="chip" id="ghChip">not set</span></summary>
+      <p class="hint">Use a <b>fine-grained</b> personal access token scoped to <i>only</i> the data repo, with
+        <span class="mono">Contents: Read and write</span>. It is stored only in this browser.</p>
+      <label for="ghOwner">Owner</label><input id="ghOwner" placeholder="your-github-user" autocomplete="off">
+      <label for="ghRepo">Repository</label><input id="ghRepo" placeholder="babboe-battery-data" autocomplete="off">
+      <label for="ghBranch">Branch</label><input id="ghBranch" placeholder="main" autocomplete="off">
+      <label for="ghToken">Token</label><input id="ghToken" type="password" placeholder="github_pat_…" autocomplete="off">
+      <div class="btns" style="margin-top:12px">
+        <button class="btn primary" id="btnSaveGh">Save &amp; test</button>
+        <button class="btn" id="btnForgetGh">Forget token</button>
+      </div>
+    </details>
+
+    <div class="card">
+      <div class="ch">Log</div>
+      <div id="log"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+// Must match BLE_*_UUID in GWA_Battery_Diag.ino
+const SVC  = "4f1a0001-6c2e-4b8e-9f3a-7d2c5e8b1a90";
+const CMD  = "4f1a0002-6c2e-4b8e-9f3a-7d2c5e8b1a90";
+const DATA = "4f1a0003-6c2e-4b8e-9f3a-7d2c5e8b1a90";
+const EOT  = 0x04;
+const $ = id => document.getElementById(id);
+
+// ── storage (every access guarded - private mode / blocked storage must not break the page)
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k)    { try { localStorage.removeItem(k); } catch {} },
+};
+
+function log(msg) {
+  const t = new Date().toLocaleTimeString();
+  $("log").textContent = `${t}  ${msg}\n` + $("log").textContent;
+}
+
+// ── BLE ────────────────────────────────────────────────────────────────────
+let dev = null, cmdChar = null, rxBuf = [], rxWaiter = null;
+
+$("bleSupport").textContent = navigator.bluetooth
+  ? "Power the diagnostic tool, then Connect. Your phone keeps its normal internet - no need to join the tool's WiFi."
+  : "This browser has no Web Bluetooth (iPhone/Safari, Firefox, or not HTTPS). Use Import file with a JSON saved from the tool's WiFi page (/data or /snapshots).";
+$("btnConnect").disabled = !navigator.bluetooth;
+
+function setBle(state) {
+  $("bleState").textContent = state;
+  $("blePill").classList.toggle("on", state === "connected");
+  $("btnScan").disabled = state !== "connected";
+  $("btnConnect").textContent = state === "connected" ? "Disconnect" : "Connect";
+}
+
+function onNotify(e) {
+  const b = new Uint8Array(e.target.value.buffer);
+  if (b.length === 1 && b[0] === EOT) {
+    const text = new TextDecoder().decode(new Uint8Array(rxBuf));
+    rxBuf = [];
+    if (rxWaiter) { const w = rxWaiter; rxWaiter = null; w(text); }
+    return;
+  }
+  rxBuf.push(...b);
+}
+
+async function bleCommand(cmd, timeoutMs = 15000) {
+  rxBuf = [];
+  const reply = new Promise((res, rej) => {
+    rxWaiter = res;
+    setTimeout(() => { if (rxWaiter === res) { rxWaiter = null; rej(new Error("timeout waiting for device")); } }, timeoutMs);
+  });
+  await cmdChar.writeValueWithResponse(new TextEncoder().encode(cmd));
+  return JSON.parse(await reply);
+}
+
+async function connect() {
+  if (dev && dev.gatt.connected) { dev.gatt.disconnect(); return; }
+  try {
+    dev = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SVC] }, { namePrefix: "GWA-BattDiag" }],
+      optionalServices: [SVC],
+    });
+    dev.addEventListener("gattserverdisconnected", () => { setBle("offline"); log("disconnected"); });
+    setBle("connecting");
+    const gatt = await dev.gatt.connect();
+    const svc = await gatt.getPrimaryService(SVC);
+    cmdChar = await svc.getCharacteristic(CMD);
+    const data = await svc.getCharacteristic(DATA);
+    data.addEventListener("characteristicvaluechanged", onNotify);
+    await data.startNotifications();
+    setBle("connected");
+    log(`connected to ${dev.name || "device"}`);
+    // The tool has no clock of its own unless a DS3231 is fitted - give it the phone's.
+    await bleCommand(`time ${Math.floor(Date.now() / 1000)}`);
+    log("clock synced from phone");
+    const last = await bleCommand("data");
+    if (last.eeprom_found) showScan(last, "ble");
+  } catch (e) {
+    setBle("offline");
+    if (e.name !== "NotFoundError") log(`connect failed: ${e.message}`);
+  }
+}
+
+async function scan() {
+  $("btnScan").disabled = true;
+  log("scanning…");
+  try {
+    const j = await bleCommand("scan");
+    if (!j.eeprom_found) { log("no EEPROM found - is the pack plugged in?"); return; }
+    showScan(j, "ble");
+    log(`scan ok: ${j.serial_number || j.battery_id}`);
+  } catch (e) { log(`scan failed: ${e.message}`); }
+  finally { $("btnScan").disabled = !(dev && dev.gatt.connected); }
+}
+
+// ── scan display ───────────────────────────────────────────────────────────
+let current = null;   // { scan, source }
+
+function showScan(scan, source) {
+  current = { scan, source };
+  $("scanCard").classList.remove("hidden");
+  const g = scan.grade || "?";
+  $("vGrade").textContent = g;
+  $("vGrade").className = "v grade g" + g;
+  $("vPct").textContent = scan.capacity_pct == null ? "–" : scan.capacity_pct + "%";
+  $("vCap").textContent = `${scan.stored_capacity ?? "–"} / ${scan.rated_capacity ?? "–"}`;
+  $("vSerial").textContent = scan.serial_number_valid ? scan.serial_number : `(unreadable) id ${scan.battery_id}`;
+  $("vStatus").textContent = "0x" + (scan.status_byte ?? "??");
+  $("vRisk").textContent = scan.ec2_risk == null ? "–" : scan.ec2_risk + " / 100";
+  $("vEvents").textContent = scan.charge_events ?? "–";
+  $("vSession").textContent = scan.session_counter ?? "–";
+  const xe = scan.xor_errors ?? 0;
+  $("xorChip").textContent = xe ? `${xe} XOR error${xe > 1 ? "s" : ""}` : "XOR ok";
+  $("xorChip").className = "chip " + (xe ? "bad" : "ok");
+  const cells = (el, arr) => $(el).innerHTML = (arr || []).map((v, i) =>
+    `<div><span>C${i + 1}</span>${v === 65535 || v === 0 ? "–" : v}</div>`).join("");
+  cells("cellsTop", scan.cell_top);
+  cells("cellsBot", scan.cell_bottom);
+  $("vTopSpread").textContent = (scan.cell_top_spread_mv ?? scan.top_spread_mv ?? "–") + " mV";
+  $("vBotSpread").textContent = (scan.cell_bottom_spread_mv ?? scan.bot_spread_mv ?? "–") + " mV";
+  $("btnUpload").disabled = false;
+}
+
+// ── import (iPhone / no-BLE fallback) ──────────────────────────────────────
+// Accepts the tool's /data or /scan JSON (one object), /snapshots (array), or a .jsonl log.
+$("btnImport").onclick = () => $("fileIn").click();
+$("fileIn").onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  const text = await f.text();
+  let items = [];
+  try {
+    const parsed = JSON.parse(text);
+    items = Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    items = text.split("\n").filter(l => l.trim()).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  }
+  items = items.filter(s => s && s.raw_dump);
+  if (!items.length) { log("import: no scans with a raw_dump found in that file"); return; }
+  if (items.length === 1) { showScan(items[0], "import"); log("imported 1 scan - review, then Upload"); return; }
+  for (const s of items) enqueue(buildRecord(s, "import", ""));
+  log(`imported ${items.length} scans into the upload queue`);
+  flushQueue();
+};
+
+// ── GitHub ─────────────────────────────────────────────────────────────────
+function gh() { return store.get("gh", { owner: "", repo: "", branch: "main", token: "" }); }
+
+function loadGhForm() {
+  const c = gh();
+  $("ghOwner").value = c.owner; $("ghRepo").value = c.repo; $("ghBranch").value = c.branch || "main"; $("ghToken").value = c.token;
+  const ok = c.owner && c.repo && c.token;
+  $("ghChip").textContent = ok ? `${c.owner}/${c.repo}` : "not set";
+  $("ghChip").className = "chip " + (ok ? "ok" : "warn");
+  if (!ok) $("ghCard").open = true;
+}
+
+async function ghFetch(path, opts = {}) {
+  const c = gh();
+  const r = await fetch(`https://api.github.com/repos/${c.owner}/${c.repo}${path}`, {
+    ...opts,
+    headers: { Authorization: `Bearer ${c.token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(opts.headers || {}) },
+  });
+  if (!r.ok) throw new Error(`GitHub ${r.status}: ${(await r.json().catch(() => ({}))).message || r.statusText}`);
+  return r.json();
+}
+
+$("btnSaveGh").onclick = async () => {
+  store.set("gh", { owner: $("ghOwner").value.trim(), repo: $("ghRepo").value.trim(), branch: $("ghBranch").value.trim() || "main", token: $("ghToken").value.trim() });
+  loadGhForm();
+  try {
+    const info = await ghFetch("");
+    log(`GitHub ok: ${info.full_name} (${info.private ? "private" : "public"})${info.permissions && info.permissions.push ? "" : " - WARNING: token can't push"}`);
+    flushQueue();
+  } catch (e) { log(`GitHub test failed: ${e.message}`); }
+};
+$("btnForgetGh").onclick = () => { const c = gh(); c.token = ""; store.set("gh", c); loadGhForm(); log("token forgotten"); };
+
+// One file per scan: scans/<serial>/<UTC timestamp>.json
+function buildRecord(scan, source, note) {
+  const { fleet, fs_scans, auto_save, ...clean } = scan;  // drop device-local bookkeeping
+  const serial = scan.serial_number_valid && scan.serial_number ? scan.serial_number : `unknown-${scan.battery_id || "x"}`;
+  const when = new Date().toISOString();
+  return {
+    path: `scans/${serial.replace(/[^A-Za-z0-9_-]/g, "_")}/${when.replace(/[:.]/g, "-")}.json`,
+    body: { schema: 1, uploaded_at: when, source, note: note || undefined, scan: clean },
+  };
+}
+
+function b64utf8(s) {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+async function putRecord(rec) {
+  const c = gh();
+  if (!(c.owner && c.repo && c.token)) throw new Error("GitHub settings not filled in");
+  const res = await ghFetch(`/contents/${rec.path}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      message: `scan ${rec.path.split("/")[1]} ${rec.body.uploaded_at}`,
+      content: b64utf8(JSON.stringify(rec.body, null, 2) + "\n"),
+      branch: c.branch || "main",
+    }),
+  });
+  return res.content && res.content.html_url;
+}
+
+function queue() { return store.get("queue", []); }
+function enqueue(rec) { const q = queue(); q.push(rec); store.set("queue", q); renderQueue(); }
+function renderQueue() {
+  const n = queue().length;
+  $("queueChip").textContent = `${n} pending`;
+  $("queueChip").className = "chip " + (n ? "warn" : "");
+  $("btnFlush").disabled = $("btnClearQ").disabled = !n;
+}
+
+async function flushQueue() {
+  let q = queue();
+  if (!q.length) return;
+  log(`uploading ${q.length} pending…`);
+  while (q.length) {
+    try { await putRecord(q[0]); log(`uploaded ${q[0].path}`); }
+    catch (e) { log(`upload stopped: ${e.message}`); break; }
+    q.shift(); store.set("queue", q); renderQueue();
+  }
+}
+
+$("btnUpload").onclick = async () => {
+  if (!current) return;
+  const rec = buildRecord(current.scan, current.source, $("note").value.trim());
+  $("btnUpload").disabled = true;
+  try {
+    const url = await putRecord(rec);
+    log(`uploaded ${rec.path}`);
+    if (url) log(`→ ${url}`);
+    $("note").value = "";
+  } catch (e) {
+    enqueue(rec);
+    log(`upload failed (${e.message}) - queued for later`);
+  } finally { $("btnUpload").disabled = false; }
+};
+
+$("btnFlush").onclick = flushQueue;
+$("btnClearQ").onclick = () => { if (confirm(`Discard ${queue().length} pending scan(s)?`)) { store.set("queue", []); renderQueue(); } };
+$("btnConnect").onclick = connect;
+$("btnScan").onclick = scan;
+window.addEventListener("online", flushQueue);
+
+loadGhForm();
+renderQueue();
+setBle("offline");
+</script>
+</body>
+</html>
