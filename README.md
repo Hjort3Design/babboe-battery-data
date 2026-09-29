@@ -1,7 +1,18 @@
 # Battery Companion: Bluetooth + GitHub scan database
 
-`index.html` is a single-file web page. It connects to `GWA_Battery_Diag` over Bluetooth LE,
-runs scans, and commits each scan as a JSON file to a GitHub repo, which acts as the scan database.
+`index.html` is **the tool's own web app** (the same page the ESP32 serves at 192.168.4.1)
+running over Bluetooth LE instead of WiFi. It has every tab and feature: scan, live, battery,
+history, fleet, compare, snapshots, offline dump analysis, recode and restore. A bar on top
+adds **Connect** and **Upload to GitHub**, which commits scans as JSON files to a GitHub repo
+that acts as the scan database.
+
+`index.html` is **generated**, so don't edit it by hand:
+```
+python tools/build_companion.py
+```
+That command takes `HTML_PAGE` out of `GWA_Battery_Diag.ino` and wires it to Bluetooth using
+`shim.js` and `shim.css`. Any change to the device UI therefore reaches the companion page
+on the next build. Afterwards, copy `index.html` into the data repo and push.
 
 ```
 ESP32 (BLE, read-only) ──► phone browser (Chrome) ──► GitHub API ──► data repo
@@ -90,9 +101,17 @@ kept, so older scans can be re-decoded whenever the register map changes.
 | | UUID | |
 |---|---|---|
 | Service | `4f1a0001-6c2e-4b8e-9f3a-7d2c5e8b1a90` | |
-| CMD | `4f1a0002-…` | write: `scan`, `data`, `time <unix epoch>` |
-| DATA | `4f1a0003-…` | notify: JSON reply in MTU-sized chunks, ended by one `0x04` byte |
+| CMD | `4f1a0002-…` | write `R<len>`, then `<len>` bytes of `<METHOD> <path>
+<body>` in as many writes as needed |
+| DATA | `4f1a0003-…` | notify: `<http status>
+<body>` in MTU-sized chunks, ended by one `0x04` byte |
+| AUTH | `4f1a0004-…` | encrypted + authenticated read. Reading it makes the OS ask for the PIN and pair |
 
-The BLE service is **read-only by design**. Recode and restore are available only in the
-WiFi UI, behind its ID-confirmation gate, because BLE has no pairing and is open to anyone
-in range.
+The firmware replays each request against its own web server, so every WiFi endpoint works
+the same way over Bluetooth, with the same safety checks.
+
+**PIN:** `/recode` and `/restore` write the pack's EEPROM, so the firmware only accepts them
+over a PIN-paired link. The page asks for pairing automatically the first time you recode,
+or you can use *⋯ → Pair with PIN*. After that the OS remembers the pairing. The PIN is
+`BLE_PASSKEY` in `GWA_Battery_Diag.ino` (default `123456`), so **change it before real use**.
+`/ota` is never available over Bluetooth.
