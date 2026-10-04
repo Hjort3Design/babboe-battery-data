@@ -135,6 +135,24 @@
   .livetable td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);color:var(--t2)}
   @media (prefers-reduced-motion:reduce){.livedot.on{animation:none}}
 
+  /* register map tab */
+  .mlegend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:12px;color:var(--t2)}
+  .mlegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  .mgrid{display:grid;grid-template-columns:auto repeat(8,1fr);gap:4px;margin-top:12px;align-items:center}
+  .mrow{font:600 10px var(--mono);color:var(--t3);padding-right:4px}
+  .mcell{font:600 10px var(--mono);height:28px;border-radius:6px;cursor:pointer;color:var(--text);
+    border:1px solid color-mix(in oklab,var(--mc) 55%,transparent);background:color-mix(in oklab,var(--mc) 26%,transparent)}
+  .mcell.mblank{opacity:.35;border-style:dashed}
+  .mitem{padding:12px 0;border-bottom:1px solid var(--line);scroll-margin-top:90px;transition:background .3s}
+  .mitem:last-child{border-bottom:none;padding-bottom:0}
+  .mitem.flash{background:color-mix(in oklab,var(--accent) 12%,transparent)}
+  .mhead{display:flex;align-items:center;gap:9px;margin-bottom:5px}
+  .maddr{font:600 12px var(--mono);color:var(--accent);white-space:nowrap}
+  .mt{flex:1;font-size:14.5px;font-weight:600}
+  .mval{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;margin-top:7px;padding:8px 10px;
+    background:var(--s2);border:1px solid var(--line);border-radius:9px;font-size:13px}
+  .mval .mono{font-size:11px}
+
   /* ── Adaptive layout ──────────────────────────────────────────────────────
      Everything above is the phone-first single-column app shell (bottom tab
      bar, fixed 480px column). These breakpoints widen that same shell for
@@ -584,6 +602,7 @@ var ICON = {
   exp:'<path d="M12 3v12M8 8l4-4 4 4"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   save:'<path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M8 3v5h7M8 21v-6h8v6"/>',
   live:'<path d="M2 12h4l2.5 7L13 5l2.5 7H22"/>',
+  map:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   play:'<path d="M6 4l14 8-14 8V4z"/>', pause:'<path d="M7 4h3v16H7zM14 4h3v16h-3z"/>'
 };
 function svg(n,sz){sz=sz||24;return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+(ICON[n]||'')+'</svg>';}
@@ -649,28 +668,31 @@ function normalize(j){
 function whR(u){return Math.round(u*UNITS_TO_WH);}
 function spreadQ(mv){return !mv?"none":mv<50?"ok":mv<100?"warn":"bad";}
 function balKind(b){var w=Math.max(b.topSpread,b.botSpread);return w>=100?"bad":w>=50?"warn":"ok";}
-// Effective identifier for a normalize()d battery record: chip serial number
-// when valid+non-empty, else the manual battery ID — same fallback rule as
-// the firmware's effectiveId(), applied everywhere a battery is matched,
-// grouped, or looked up by identity in the UI.
+// The battery's identifier, read from its own EEPROM — same rule as the
+// firmware's chipId(): printed serial when its XOR check passes, else the
+// 0x18 identity bytes as "ID-XXYYZZ", else "UNKNOWN". Recomputed here rather
+// than trusting battery_id, since older log records carry a manual nickname.
+function chipId(sn,snv,idf){
+  if(snv!==false&&sn&&sn!=="—")return String(sn);
+  if(idf&&idf!=="—"&&idf!=="FF FF FF")return "ID-"+String(idf).replace(/ /g,"");
+  return "UNKNOWN";
+}
 function effId(b){
   if(!b)return null;
-  if(b.serialValid&&b.serial&&b.serial!=="—")return String(b.serial);
-  return String(b.id);
+  return chipId(b.serialValid?b.serial:null,true,b.identity);
 }
-// Primary/secondary identity label for prominent display: the serial number
-// is primary when valid; the manual battery ID shows alongside as a smaller
-// nickname only when it's set to something other than the fallback default
-// and differs from the serial. Returns {primary, secondary} plain strings
-// (no markup) for callers to style as they see fit.
+// ID/serial as shown on screen: hides the 'P' pad an odd-length serial is
+// stored with (decoded strings are always even length) - same as the
+// firmware's shownId(). Display only; keys and stored values keep it.
+function showId(id){
+  if(id===null||id===undefined)return id;
+  id=String(id);return id.length%2===0&&/P$/.test(id)?id.slice(0,-1):id;
+}
+// Identity label for prominent display. Returns {primary, secondary} plain
+// strings (no markup) for callers to style as they see fit.
 function displayId(b){
   if(!b)return{primary:"?",secondary:null};
-  var hasSerial=b.serialValid&&b.serial&&b.serial!=="—";
-  if(hasSerial){
-    var nick=(b.id&&b.id!=="—"&&String(b.id)!==String(b.serial))?b.id:null;
-    return{primary:b.serial,secondary:nick};
-  }
-  return{primary:b.id||"?",secondary:null};
+  return{primary:showId(effId(b)),secondary:null};
 }
 
 /* ── SVG capacity gauge ── */
@@ -718,11 +740,11 @@ function renderChrome(){
     tb.innerHTML='<div class="mark">GW</div><div><h1>Live</h1><div class="sub">Continuous EEPROM 0x50 polling</div></div>'
       +'<span class="sp"></span><span class="livedot'+(state.live.running?" on":"")+'"></span>';
   } else {
-    var meta=state.tab==="history"?["History","Recent scans & trends"]:["BattDiag","GWA ibo-R37 / R45"];
+    var meta=state.tab==="history"?["History","Recent scans & trends"]:state.tab==="map"?["Register Map","AT24C02 · 256 bytes · I2C 0x50"]:["BattDiag","GWA ibo-R37 / R45"];
     tb.innerHTML='<div class="mark">GW</div><div><h1>'+meta[0]+'</h1><div class="sub">'+meta[1]+'</div></div>'
       +'<span class="sp"></span><span class="pill"><i></i>192.168.4.1</span>';
   }
-  var tabs=[["scan","Scan","scan"],["live","Live","live"],["battery","Battery","battery"],["history","History","history"]];
+  var tabs=[["scan","Scan","scan"],["live","Live","live"],["battery","Battery","battery"],["history","History","history"],["map","Map","map"]];
   $("tabbar").innerHTML=tabs.map(function(t){return '<button class="tab'+(state.tab===t[0]?" on":"")+'" onclick="showTab(\''+t[0]+'\')">'+svg(t[2],24)+t[1]+'</button>';}).join("");
 }
 function gradeSq(g,sz){return '<div class="grade-sq" style="width:'+sz+'px;height:'+sz+'px;background:'+gv(g)+';color:'+gink(g)+';font-size:'+(sz*.55)+'px">'+g+'</div>';}
@@ -734,8 +756,130 @@ function render(){
   if(state.tab==="scan") v.innerHTML=viewScan();
   else if(state.tab==="live") v.innerHTML=viewLive();
   else if(state.tab==="history") v.innerHTML=viewHistory();
+  else if(state.tab==="map") v.innerHTML=viewMap();
   else { v.innerHTML = !state.current?emptyBattery():state.sub==="vitals"?viewVitals(state.current):state.sub==="cells"?viewCells(state.current):viewDash(state.current); }
   v.scrollTop=0;
+}
+
+/* ── register map tab ──
+   What each part of the 256-byte AT24C02 holds, how sure we are, and (when a
+   scan with a raw dump is loaded) what this battery has there. Mirrors
+   docs/REGISTER_MAP.md - update both together.
+   k = decode kind: byte | rec (LE16+XOR) | be (BE16+XOR) | hex | ascii | top | bot | dup4 | dup3 */
+var MAP_CONF={confirmed:["Confirmed","--g-a"],likely:["Likely","--g-b"],hypo:["Hypothesis","--g-d"],unknown:["Unknown","--t3"]};
+var MAP=[
+ {s:"Status & identity"},
+ {a:0x00,n:4,k:"byte",c:"hypo",t:"Status",d:"Status / self-test stage. Seen C0, 02, 01; the charger writes 10 at the start of self-test. Newer packs store it as [status FF XOR]. 0xE0 and up is treated as a fault state."},
+ {a:0x04,n:4,k:"hex",c:"unknown",t:"Stage bytes",d:"Blank at rest on every pack, but the charger was caught writing small values to 0x01-0x02 during self-test."},
+ {a:0x08,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at every self-test. Blank on all packs so far."},
+ {a:0x0C,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. Only the R45 pack has a value here (12870)."},
+ {a:0x18,n:4,k:"hex",c:"hypo",t:"Identity",d:"3 raw bytes. First byte 07 on every pack (model/family), last two differ per pack. Used as the battery ID when the serial can't be read."},
+ {s:"Capacity & model"},
+ {a:0x1C,n:4,k:"be",c:"confirmed",t:"Stored capacity",d:"Measured capacity in model units, big-endian. Divided by the rated code it gives the health %. Blank until the first calibration. Written by Recode."},
+ {a:0x24,n:4,k:"rec",c:"confirmed",t:"Rated capacity (model code)",d:"500 = R37 family, 600 = R45 family. A tier code, not literal Wh or Ah."},
+ {a:0x28,n:4,k:"be",c:"confirmed",t:"Model constant",d:"Big-endian. 13345 on R37 packs, 41000 on R45. Never changes."},
+ {s:"Calibration (CAL)"},
+ {a:0x2C,n:4,k:"rec",c:"likely",t:"Calibration count",d:"Number of full CAL cycles: 0 on a pack never calibrated, went 1 to 2 across Bat:001's calibration on 14 Aug."},
+ {a:0x30,n:4,k:"rec",c:"confirmed",t:"Calibration measurement",d:"Capacity measured by the last CAL cycle (can also be a factory value). Written together with 0x34, 0x74-0x7C and the cell tables."},
+ {a:0x34,n:4,k:"rec",c:"hypo",t:"Calibration mirror",d:"Copy of 0x30, but only written by a real field calibration. Blank on packs that never had one."},
+ {a:0x74,n:4,k:"rec",c:"hypo",t:"CAL stat 1",d:"Written at calibration. Same value (6427) on both of Bat:001's calibrations. Meaning open."},
+ {a:0x78,n:4,k:"dup4",c:"hypo",t:"Cell 9, top of charge?",d:"One byte stored twice, +4000 mV like the top cell table. The tables only hold 8 cells and the pack is 9S, so this may be cell 9."},
+ {a:0x7C,n:4,k:"dup3",c:"hypo",t:"Cell 9, bottom of charge?",d:"One byte stored twice, +3000 mV like the bottom cell table. Pairs with 0x78."},
+ {s:"Counters & gauge"},
+ {a:0x10,n:4,k:"rec",c:"hypo",t:"Charge events",d:"Rises with use, not only at calibration (+74 on Bat:001 in 7 weeks). Reset to 0 by Recode."},
+ {a:0x40,n:4,k:"rec",c:"hypo",t:"Charge gauge",d:"Moves down and up with use and resets to the 0x30 value when the pack is full."},
+ {a:0x44,n:4,k:"rec",c:"hypo",t:"Gauge mirror",d:"Copy of 0x40. The charger writes 0x40, reads it back, then writes the same value here."},
+ {a:0x50,n:4,k:"rec",c:"confirmed",t:"Session counter",d:"+1 every time the charger powers up with the pack attached (caught live). Reset to 0 by Recode."},
+ {a:0x60,n:4,k:"rec",c:"hypo",t:"Slow counter",d:"Labelled cap_threshold in the tool, but it climbs slowly (356, 358, 365 on Bat:001). Maybe a lifetime cycle count. Recode does not reset it."},
+ {s:"Not yet understood"},
+ {a:0x14,n:4,k:"rec",c:"unknown",t:"Unknown",d:"520 on Bat:003 and the R45 pack, blank on Bat:001."},
+ {a:0x20,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test, written at calibration. Values differ per pack."},
+ {a:0x38,n:4,k:"rec",c:"unknown",t:"Flag",d:"0 or 1. Was 1 on Bat:001 before its first calibration, 0 since."},
+ {a:0x3C,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. 10300 on Bat:003, 12300 on R45, blank on Bat:001."},
+ {a:0x48,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. 12000 on Bat:003, 12300 on R45."},
+ {a:0x4C,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. 1000 on both newer packs."},
+ {a:0x54,n:4,k:"hex",c:"unknown",t:"Unused?",d:"Blank on every pack so far and not read by the charger."},
+ {a:0x58,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. Only the R45 pack has a value."},
+ {a:0x5C,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. Only the R45 pack has a value."},
+ {a:0x64,n:16,k:"rec",c:"unknown",t:"4-value table",d:"Four rising values, read by the charger. 6000/7000/8000/9000 on Bat:003 (looks like a template), uneven on R45."},
+ {s:"ID strings (2 ASCII chars per record)"},
+ {a:0x80,n:32,k:"ascii",c:"confirmed",t:"Battery serial",d:"The serial printed on the pack label. Odd-length serials get a P pad that is not on the label."},
+ {a:0xA0,n:32,k:"ascii",c:"likely",t:"Last charger ID",d:"Rewritten by the charger at every power-on self-test. Bat:003 took the same value as Bat:001 after one charge on the same charger."},
+ {a:0xC0,n:32,k:"ascii",c:"unknown",t:"Factory ID",d:"Never read or written by the charger. A factory record, maybe the BMS board, cell module or a paired device."},
+ {s:"Cell voltages (written at calibration)"},
+ {a:0xE0,n:16,k:"top",c:"likely",t:"Cells 1-8, top of charge",d:"One byte per cell, +4000 mV. Structure confirmed by XOR; which physical cell is which is still to be checked with a multimeter."},
+ {a:0xF0,n:16,k:"bot",c:"likely",t:"Cells 1-8, bottom of charge",d:"One byte per cell, +3000 mV."}
+];
+function h2(n){return ("0"+n.toString(16).toUpperCase()).slice(-2);}
+function mapBytes(raw){if(!raw||raw.length<512)return null;var a=[];for(var i=0;i<256;i++)a.push(parseInt(raw.substr(i*2,2),16));return a;}
+function recState(B,o){var lo=B[o],hi=B[o+1],x=B[o+2];if(lo===255&&hi===255&&x===255)return "blank";return (lo^hi)===x?"ok":"bad";}
+// Decoded value of one map entry for this dump: {v, q} with q = ok | blank | bad
+function mapValue(e,B){
+  var i,o,q,out=[],qs=[];
+  if(e.k==="byte")return {v:"0x"+h2(B[e.a]),q:"ok"};
+  if(e.k==="hex"){var hx=[];for(i=0;i<3;i++)hx.push(h2(B[e.a+i]));return {v:hx.join(" "),q:hx.join("")==="FFFFFF"?"blank":"ok"};}
+  if(e.k==="ascii"){
+    var s="";q="ok";
+    for(o=e.a;o<e.a+e.n;o+=4){var st=recState(B,o);if(st!=="ok"){q=s?"ok":st;break;}if(B[o]===0x50&&B[o+1]===0x50)break;s+=String.fromCharCode(B[o],B[o+1]);}
+    return {v:s?showId(s):"—",q:s?"ok":q};
+  }
+  if(e.k==="top"||e.k==="bot"){
+    var base=e.k==="top"?4000:3000,c=[];
+    for(o=e.a;o<e.a+e.n;o+=4){qs.push(recState(B,o));for(i=0;i<2;i++)if(B[o+i]!==255)c.push(base+B[o+i]);}
+    if(!c.length)return {v:"—",q:"blank"};
+    return {v:c.join(" ")+"  ("+(Math.max.apply(null,c)-Math.min.apply(null,c))+" mV spread)",q:qs.indexOf("bad")>=0?"bad":"ok"};
+  }
+  if(e.k==="dup4"||e.k==="dup3"){
+    q=recState(B,e.a);if(q!=="ok")return {v:"—",q:q};
+    return B[e.a]===B[e.a+1]?{v:((e.k==="dup4"?4000:3000)+B[e.a])+" mV",q:"ok"}:{v:"0x"+h2(B[e.a])+h2(B[e.a+1]),q:"ok"};
+  }
+  for(o=e.a;o<e.a+e.n;o+=4){
+    q=recState(B,o);qs.push(q);
+    out.push(q==="ok"?String(e.k==="be"?(B[o]<<8|B[o+1]):(B[o+1]<<8|B[o])):"—");
+  }
+  return {v:out.join(" / "),q:qs.indexOf("bad")>=0?"bad":qs.indexOf("ok")>=0?"ok":"blank"};
+}
+function mapRaw(e,B){var r=[];for(var o=e.a;o<e.a+Math.min(e.n,8);o+=4)r.push(h2(B[o])+" "+h2(B[o+1])+" "+h2(B[o+2]));return r.join(" · ")+(e.n>8?" …":"");}
+function mapJump(a){var el=$("m-"+h2(a));if(el){el.scrollIntoView({behavior:"smooth",block:"center"});el.classList.add("flash");setTimeout(function(){el.classList.remove("flash");},1200);}}
+function viewMap(){
+  var b=state.current,B=b?mapBytes(b.raw):null,cover=[],i,e;
+  for(i=0;i<MAP.length;i++){e=MAP[i];if(e.s)continue;for(var r=e.a;r<e.a+e.n;r+=4)cover[r>>2]=e;}
+  var s='<div class="stack">';
+  s+='<div class="card"><div class="ch"><span class="t">EEPROM register map</span></div>'
+    +'<p class="hint">The battery stores its data in a 256-byte AT24C02 EEPROM at I2C address 0x50, as 64 records of 4 bytes. '
+    +'Most records are a 16-bit number + XOR check + FF padding. Tap a square to jump to its field.</p>'
+    +'<div class="mlegend">'+Object.keys(MAP_CONF).map(function(k){return '<span><i style="background:var('+MAP_CONF[k][1]+')"></i>'+MAP_CONF[k][0]+'</span>';}).join("")+'</div>'
+    +(B?'<p class="hint" style="margin-top:8px">Values below are from <b style="color:var(--text)">'+showId(effId(b))+'</b>. Faded squares are blank (FF) on this battery.</p>'
+       :'<p class="hint" style="margin-top:8px">Scan a battery or analyse a dump to see its values here.</p>')
+    +'<div class="mgrid">';
+  for(var row=0;row<8;row++){
+    s+='<span class="mrow">'+h2(row*32)+'</span>';
+    for(var col=0;col<8;col++){
+      var idx=row*8+col,a=idx*4;e=cover[idx];
+      var col_=e?MAP_CONF[e.c][1]:"--t3",blank=B&&recState(B,a)==="blank"&&B[a+3]===255;
+      s+='<button class="mcell'+(blank?" mblank":"")+'" style="--mc:var('+col_+')" title="0x'+h2(a)+(e?" "+e.t:"")+'" onclick="mapJump('+(e?e.a:a)+')">'+h2(a)+'</button>';
+    }
+  }
+  s+='</div></div>';
+  var open=false;
+  for(i=0;i<MAP.length;i++){
+    e=MAP[i];
+    if(e.s){s+=(open?'</div>':'')+'<div class="card"><div class="ch"><span class="t">'+e.s+'</span></div>';open=true;continue;}
+    var cf=MAP_CONF[e.c],val=B?mapValue(e,B):null;
+    var rng="0x"+h2(e.a)+(e.n>4?"–"+h2(e.a+e.n-1):"");
+    s+='<div class="mitem" id="m-'+h2(e.a)+'">'
+      +'<div class="mhead"><span class="maddr">'+rng+'</span><span class="mt">'+e.t+'</span>'
+      +'<span class="chip" style="color:var('+cf[1]+');border-color:color-mix(in oklab,var('+cf[1]+') 40%,transparent)">'+cf[0]+'</span></div>'
+      +'<p class="hint">'+e.d+'</p>';
+    if(val){
+      var qc=val.q==="bad"?"var(--g-e)":val.q==="blank"?"var(--t3)":"var(--text)";
+      s+='<div class="mval"><span class="num" style="color:'+qc+'">'+(val.q==="blank"?"blank (never written)":val.q==="bad"?"XOR check failed":val.v)+'</span>'
+        +'<span class="mono muted">'+mapRaw(e,B)+'</span></div>';
+    }
+    s+='</div>';
+  }
+  if(open)s+='</div>';
+  return s+'</div>';
 }
 
 function viewScan(){
@@ -743,8 +887,7 @@ function viewScan(){
   s+='<div class="stack">';
   /* ID + scan */
   s+='<div class="card"><div class="ch"><span class="t">EEPROM 0x50</span><span class="sp"></span><span class="chip" id="connchip">ready</span></div>'
-    +'<label class="idrow"><span class="eb" style="white-space:nowrap">Nickname</span><input type="text" id="bid" maxlength="7" placeholder="001" value="'+(state.current?state.current.id:"")+'">'
-    +'<button class="btn btn-ghost" style="width:auto;padding:9px 14px" onclick="setId()">Set</button></label></div>';
+    +'<div class="hint">Battery ID is read from the chip (printed serial number).</div></div>';
   if(state.scanning){
     s+='<div class="card" style="border-color:color-mix(in oklab,var(--accent) 40%,transparent)"><div style="display:flex;align-items:center;gap:12px"><div class="spin"></div>'
       +'<div><div style="font-weight:700;text-transform:uppercase;letter-spacing:.5px">Reading…</div><div class="mono" style="font-size:12px;color:var(--accent);margin-top:2px">I²C 0x50 · decoding</div></div></div></div>';
@@ -833,7 +976,7 @@ function viewDash(b){
   s+=trendCard(b);
   s+='<div class="brow"><button class="btn btn-ghost" onclick="saveSnap()">'+svg("save",18)+' Snapshot</button><button class="btn btn-ghost" onclick="__dev.download(\'/export\')">'+svg("exp",18)+' Export CSV</button></div>';
   s+='<label class="idrow" style="justify-content:center;gap:8px;color:var(--t3);font-size:13px;padding:2px"><input type="checkbox" id="autosave" '+(state.autoSave?"checked":"")+' onchange="toggleAuto(this.checked)" style="width:auto"> Auto-save each scan</label>';
-  s+='<div class="mono" style="text-align:center;font-size:11px;color:var(--t3)">'+(b.dt?"last scan "+b.dt+" · ":"")+'id '+b.identity+(b.serialValid?" · sn "+b.serial:"")+'</div>';
+  s+='<div class="mono" style="text-align:center;font-size:11px;color:var(--t3)">'+(b.dt?"last scan "+b.dt+" · ":"")+'id '+b.identity+(b.serialValid?" · sn "+showId(b.serial):"")+'</div>';
   s+='</div>';return s;
 }
 function fleetBar(pct,color){
@@ -882,13 +1025,10 @@ function fleetCard(b){
   return s;
 }
 
-// Effective identifier for a raw snapshot-log record: chip serial when its
-// XOR check was valid, else the manual battery_id — mirrors effectiveId()
-// on the firmware and currentEffectiveId() above, so snapshots group under
-// the same primary identifier shown in the UI.
+// Effective identifier for a raw snapshot-log record — same chipId() rule,
+// so snapshots group under the same identifier shown in the UI.
 function snapEffectiveId(s){
-  if(s.serial_number_valid!==false && s.serial_number && s.serial_number!=="—") return String(s.serial_number);
-  return String(s.battery_id);
+  return chipId(s.serial_number,s.serial_number_valid,s.identity_field);
 }
 function trendCard(b){
   var bid=effId(b);
@@ -1006,7 +1146,7 @@ function viewVitals(b){
     +b.calStat.map(function(v,i){return '<div style="flex:1;text-align:center;background:var(--s2);border:1px solid var(--line);border-radius:var(--r);padding:12px 4px"><div class="num" style="font-size:20px;font-weight:600">'+v+'</div><div class="eb" style="margin-top:3px">RUN '+(i+1)+'</div></div>';}).join("")
     +'</div><div class="hint" style="margin-top:10px">Last three calibration measurements (units). Declining values indicate true capacity loss.</div></div>';}
   s+='<div class="card"><div class="ch"><span class="t">Identity & status</span></div>'
-    +'<div class="row"><span class="k">Serial · 0x80</span><span class="v">'+(b.serialValid?b.serial:'N/A')+'</span></div>'
+    +'<div class="row"><span class="k">Serial · 0x80</span><span class="v">'+(b.serialValid?showId(b.serial):'N/A')+'</span></div>'
     +'<div class="row"><span class="k">Identity · 0x18</span><span class="v">'+b.identity+'</span></div>'
     +(b.identityType?'<div class="row"><span class="k">Identity type</span><span class="v" style="font-size:13px"><span class="chip '+(b.identityType==="unique"?"ok":"warn")+'">'+b.identityType+'</span></span></div>':'')
     +'<div class="row"><span class="k">Status byte</span><span class="v">'+hexb(b.status)+'</span></div>'
@@ -1060,7 +1200,7 @@ function viewHistory(){
       var g=o.grade||"?",c=gv(g);
       return '<div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line)">'
         +'<span class="num" style="color:var(--t3);font-size:11px;width:96px">'+(o.timestamp||"").slice(0,16)+'</span>'
-        +'<span style="font-weight:700;color:var(--text);font-size:13px">'+(snapEffectiveId(o)||"?")+'</span>'
+        +'<span style="font-weight:700;color:var(--text);font-size:13px">'+(showId(snapEffectiveId(o))||"?")+'</span>'
         +'<span style="color:'+c+';font-weight:800">'+g+'</span><span class="sp"></span>'
         +'<span class="num" style="color:var(--t2);font-size:12px">'+(o.stored_wh||"?")+' Wh · '+fmtPct(num(o.capacity_pct))+'%</span></div>';
     }).join("")+'</div>';
@@ -1081,7 +1221,7 @@ function comparePanel(a,b){
       +'<div class="num" style="padding:9px 6px;text-align:right;font-size:13px;font-weight:'+(changed?700:400)+';border-top:1px solid var(--line)">'+vb+f[3]+'</div>'
       +'<div class="num" style="padding:9px 16px 9px 6px;text-align:right;font-size:12px;color:'+dc+';border-top:1px solid var(--line)">'+delta+'</div>';
   }).join("");
-  var idA=snapEffectiveId(a),idB=snapEffectiveId(b);
+  var idA=showId(snapEffectiveId(a)),idB=showId(snapEffectiveId(b));
   return '<div class="card" style="padding:0;overflow:hidden">'
     +'<div style="display:flex;align-items:center;padding:13px 16px;border-bottom:1px solid var(--line)"><span class="t" style="flex:1">Compare A · B</span>'
     +'<button class="btn btn-ghost" style="width:auto;padding:5px 10px;font-size:12px" onclick="clearCompare()">Clear</button></div>'
@@ -1119,7 +1259,6 @@ function scanNow(){state.scanning=true;render();
     return refreshHistory().then(refreshSnaps).then(refreshFleet);
   }).then(render).catch(function(e){state.scanning=false;toast("Scan failed");render();});}
 
-function setId(){var v=($("bid").value||"").trim();if(!v)return;getJSON("/setid?id="+encodeURIComponent(v)).then(function(){toast("Battery ID set to "+v);if(state.current)state.current.id=v;render();}).catch(function(){toast("Set ID failed");});}
 function saveSnap(){postForm("/save").then(function(j){if(j&&j.ok){toast("Snapshot saved · "+(j.timestamp||""));refreshSnaps().then(render);}else toast((j&&j.msg)||"Save failed");}).catch(function(){toast("Save failed");});}
 function toggleAuto(v){state.autoSave=v;getJSON("/autosave?v="+(v?"1":"0")).catch(function(){});}
 function analyzeDump(){var hex=$("dump").value||"";var n=hex.replace(/\s/g,"").length;
@@ -1129,7 +1268,7 @@ function analyzeDump(){var hex=$("dump").value||"";var n=hex.replace(/\s/g,"").l
   }).catch(function(){toast("Upload failed");});}
 function clearDump(){var d=$("dump");if(d)d.value="";postForm("/cleardump").catch(function(){});toast("Cleared — next scan uses live I²C");}
 function storeDump(slot){postForm("/storedump","slot="+slot).then(function(j){
-  if(j&&j.ok){state.slots[slot]=state.current?state.current.id:"?";toast("Stored as "+slot);
+  if(j&&j.ok){state.slots[slot]=state.current?showId(effId(state.current)):"?";toast("Stored as "+slot);
     var si=$("slotinfo");if(si)si.textContent="A: "+(state.slots.A||"—")+"   B: "+(state.slots.B||"—");
     if(state.slots.A&&state.slots.B)refreshCompare();}
   else toast((j&&j.msg)||"Store failed");
@@ -1187,15 +1326,17 @@ function updateRecodeTierCalc(){
   }
   out.textContent=txt;
 }
-// Effective identifier for the currently-scanned battery: the chip's own
-// serial number when readable, else the manual battery ID — same fallback
-// rule the firmware applies server-side (effectiveId()).
+// Stored identifier for the currently-scanned battery — same rule the
+// firmware applies server-side (effectiveId()).
 function currentEffectiveId(){return effId(state.current);}
+// The operator types the ID as displayed (no pad); map it back to the stored
+// ID the firmware checks, or null on mismatch.
+function confirmedId(typed){var id=currentEffectiveId();return id&&(typed===id||typed===showId(id))?id:null;}
 function doRecodeClick(){
   var typed=($("recodeId").value||"").trim();
-  var currentId=currentEffectiveId();
+  var currentId=confirmedId(typed);
   if(!typed){toast("Type the serial number (or battery ID) to confirm");return;}
-  if(!currentId||typed!==currentId){toast("ID does not match the currently scanned battery");return;}
+  if(!currentId){toast("ID does not match the currently scanned battery");return;}
   var retier=recodeRetierTarget();
   var msg="This will PERMANENTLY overwrite this pack's EEPROM:\n\n"
     +"• Stored capacity (0x1C) -> 100% of rated\n"
@@ -1206,7 +1347,7 @@ function doRecodeClick(){
   if(!confirm(msg))return;
   var note=($("recodeNote")?$("recodeNote").value:"")||"";
   var ri=$("recoderesult");if(ri)ri.textContent="Writing…";
-  var body="confirm=1&id="+encodeURIComponent(typed)+"&note="+encodeURIComponent(note);
+  var body="confirm=1&id="+encodeURIComponent(currentId)+"&note="+encodeURIComponent(note);
   if(retier) body+="&retier_code="+retier.code;
   postForm("/recode",body).then(function(j){
     if(!j){if(ri)ri.textContent="Recode failed — no response";toast("Recode failed");return;}
@@ -1237,7 +1378,7 @@ function renderRecodeBackups(){
   box.innerHTML=arr.map(function(b,i){
     var noteTxt=b.note?(' — '+b.note):'';
     return '<div class="card" style="margin-top:6px;padding:10px 12px">'
-      +'<div style="font-size:13px"><b>'+(b.timestamp||'?')+'</b> · '+(snapEffectiveId(b)||'?')+' · '+(b.identity_field||'?')+noteTxt+'</div>'
+      +'<div style="font-size:13px"><b>'+(b.timestamp||'?')+'</b> · '+(showId(snapEffectiveId(b))||'?')+' · '+(b.identity_field||'?')+noteTxt+'</div>'
       +'<div class="hint" style="margin-top:2px">'+(b.reason||'')+'</div>'
       +'<button class="btn btn-ghost" style="margin-top:6px;width:auto;padding:8px 14px" onclick="doRestoreClick('+i+')">Restore this</button>'
       +'</div>';
@@ -1247,13 +1388,13 @@ function doRestoreClick(i){
   var b=(state.recodeBackups||[])[i];
   if(!b){toast("Backup not found — reload the list");return;}
   var typed=($("recodeId").value||"").trim();
-  var currentId=currentEffectiveId();
+  var currentId=confirmedId(typed);
   if(!typed){toast("Type the serial number (or battery ID) to confirm");return;}
-  if(!currentId||typed!==currentId){toast("ID does not match the currently scanned battery");return;}
+  if(!currentId){toast("ID does not match the currently scanned battery");return;}
   var msg="This will overwrite the ENTIRE 256-byte EEPROM with the backup from "+(b.timestamp||'?')+".\n\nContinue?";
   if(!confirm(msg))return;
   var ri=$("restoreresult");if(ri)ri.textContent="Writing…";
-  var body="confirm=1&id="+encodeURIComponent(typed)+"&dump="+encodeURIComponent(b.raw_dump||"");
+  var body="confirm=1&id="+encodeURIComponent(currentId)+"&dump="+encodeURIComponent(b.raw_dump||"");
   postForm("/restore",body).then(function(j){
     if(!j){if(ri)ri.textContent="Restore failed — no response";toast("Restore failed");return;}
     if(ri)ri.textContent=(j.ok?"OK — ":"FAILED — ")+(j.msg||"")+" (backed_up: "+(j.backed_up?"yes":"no")+", verified: "+(j.verified?"yes":"no")+")";
@@ -1300,11 +1441,11 @@ __dev.onConnect(function(){__dev.request("GET","/settime?ts="+Math.floor(Date.no
 render();
 loadInitial().then(render);
 window.showTab=showTab;window.drill=drill;window.back=back;window.openId=openId;window.scanNow=scanNow;
-window.setId=setId;window.saveSnap=saveSnap;window.toggleAuto=toggleAuto;window.analyzeDump=analyzeDump;
+window.saveSnap=saveSnap;window.toggleAuto=toggleAuto;window.analyzeDump=analyzeDump;
 window.clearDump=clearDump;window.storeDump=storeDump;window.clearCompare=clearCompare;
 window.doRecodeClick=doRecodeClick;window.updateRecodeTierCalc=updateRecodeTierCalc;
 window.loadRecodeBackups=loadRecodeBackups;window.doRestoreClick=doRestoreClick;
-window.startLive=startLive;window.stopLive=stopLive;window.clearLive=clearLive;window.setLiveInterval=setLiveInterval;
+window.mapJump=mapJump;window.startLive=startLive;window.stopLive=stopLive;window.clearLive=clearLive;window.setLiveInterval=setLiveInterval;
 </script>
 </body>
 </html>
