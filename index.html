@@ -238,6 +238,9 @@ body.cpHasBar .topbar { top: 46px; }
   var DATA = "4f1a0003-6c2e-4b8e-9f3a-7d2c5e8b1a90";
   var AUTH = "4f1a0004-6c2e-4b8e-9f3a-7d2c5e8b1a90";
   var EOT = 0x04, WRITE_CHUNK = 180, TIMEOUT_MS = 30000;
+  // Anonymous uploads (relay/ - Cloudflare Worker). Used when this browser has
+  // no GitHub token; scans then arrive as pull requests for review. Empty = off.
+  var RELAY_URL = "";
   var enc = new TextEncoder(), dec = new TextDecoder();
 
   var dev = null, cmdChar = null, authChar = null, paired = false;
@@ -369,6 +372,7 @@ body.cpHasBar .topbar { top: 46px; }
   // ── GitHub scan database ───────────────────────────────────────────────────
   function gh() { return store.get("gh", { owner: "", repo: "", branch: "main", token: "" }); }
   function ghReady() { var c = gh(); return !!(c.owner && c.repo && c.token); }
+  function canUpload() { return ghReady() || !!RELAY_URL; }
 
   function ghFetch(path, opts) {
     var c = gh(); opts = opts || {};
@@ -423,7 +427,22 @@ body.cpHasBar .topbar { top: 46px; }
     for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
     return btoa(bin);
   }
+  // The relay re-derives the ID and path itself and only takes these fields.
+  function relayPut(rec) {
+    var b = rec.body;
+    return fetch(RELAY_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scan: b.scan, scanned_at: b.scanned_at, note: b.note, source: b.source }),
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (r.ok) return j;
+        if (r.status === 409) throw new Error("duplicate: " + (j.message || "already in the database"));
+        throw new Error("relay " + r.status + ": " + (j.message || r.statusText));
+      });
+    });
+  }
   function putRecord(rec) {
+    if (!ghReady() && RELAY_URL) return relayPut(rec);
     if (!ghReady()) return Promise.reject(new Error("GitHub settings not filled in"));
     return ghFetch("/contents/" + rec.path, {
       method: "PUT",
@@ -438,14 +457,14 @@ body.cpHasBar .topbar { top: 46px; }
   function queue() { return store.get("queue", []); }
   function flushQueue() {
     var q = queue();
-    if (!q.length || !ghReady()) return Promise.resolve();
+    if (!q.length || !canUpload()) return Promise.resolve();
     log("uploading " + q.length + " pending…");
     function next() {
       q = queue();
       if (!q.length) { renderBar(); return; }
       return putRecord(q[0]).then(function () { log("uploaded " + q[0].path); }, function (e) {
         // 422 without a sha = file already exists -> uploaded earlier
-        if (/GitHub 422/.test(e.message)) { log("skipped (already in repo) " + q[0].path); return; }
+        if (/GitHub 422|^duplicate/.test(e.message)) { log("skipped (already in repo) " + q[0].path); return; }
         throw e;
       }).then(function () { store.set("queue", q.slice(1)); renderBar(); return next(); });
     }
@@ -454,11 +473,15 @@ body.cpHasBar .topbar { top: 46px; }
 
   function uploadLast() {
     if (!lastScan) { note("Scan a pack first"); return; }
-    if (!ghReady()) { document.getElementById("cpPanel").hidden = false; note("Fill in GitHub settings first"); return; }
+    if (!canUpload()) { document.getElementById("cpPanel").hidden = false; note("Fill in GitHub settings first"); return; }
     var n = window.prompt("Note for this scan (optional):", "");
     if (n === null) return;
     var rec = buildRecord(lastScan, "ble", n.trim());
-    putRecord(rec).then(function () { note("Uploaded to GitHub"); log("uploaded " + rec.path); }, function (e) {
+    putRecord(rec).then(function (j) {
+      if (j && j.review_url) { note("Sent - added after review"); log("sent for review " + j.review_url); }
+      else { note("Uploaded to GitHub"); log("uploaded " + rec.path); }
+    }, function (e) {
+      if (/^duplicate/.test(e.message)) { note("Already in the database"); log("skipped (already in repo) " + rec.path); return; }
       store.set("queue", queue().concat([rec])); renderBar();
       note("Upload failed - queued"); log("upload failed (" + e.message + ") - queued");
     });
@@ -514,7 +537,7 @@ body.cpHasBar .topbar { top: 46px; }
     document.getElementById("cpUpload").disabled = !lastScan;
     var n = queue().length;
     document.getElementById("cpQueue").textContent = n ? n + " pending" : "";
-    document.getElementById("cpGh").textContent = ghReady() ? gh().owner + "/" + gh().repo : "not set";
+    document.getElementById("cpGh").textContent = ghReady() ? gh().owner + "/" + gh().repo : RELAY_URL ? "anonymous upload" : "not set";
   }
 
   function buildUi() {
@@ -532,6 +555,7 @@ body.cpHasBar .topbar { top: 46px; }
     panel.innerHTML =
       '<p class="cpHint" id="cpSupport"></p>' +
       '<h3>GitHub scan database <span id="cpGh" class="cpQ"></span></h3>' +
+      (RELAY_URL ? '<p class="cpHint">No token needed: without one, <b>⤒ GitHub</b> sends scans anonymously and they are added after review. The token below is only for the database owner.</p>' : '') +
       '<p class="cpHint">Fine-grained token, only the data repo, <b>Contents: Read and write</b>. Stored only in this browser.</p>' +
       '<label>Owner<input id="cpOwner" autocomplete="off"></label><label>Repository<input id="cpRepo" autocomplete="off"></label>' +
       '<label>Branch<input id="cpBranch" autocomplete="off"></label><label>Token<input id="cpToken" type="password" autocomplete="off"></label>' +
@@ -574,7 +598,7 @@ body.cpHasBar .topbar { top: 46px; }
         flushQueue();
       }, function (e) { log("GitHub test failed: " + e.message); });
     };
-    if (!navigator.bluetooth || !ghReady()) panel.hidden = false;
+    if (!navigator.bluetooth || !canUpload()) panel.hidden = false;
     renderBar();
   }
 
@@ -779,29 +803,29 @@ var MAP=[
  {a:0x24,n:4,k:"rec",c:"confirmed",t:"Rated capacity (model code)",d:"500 = R37 family, 600 = R45 family. A tier code, not literal Wh or Ah."},
  {a:0x28,n:4,k:"be",c:"confirmed",t:"Model constant",d:"Big-endian. 13345 on R37 packs, 41000 on R45. Never changes."},
  {s:"Calibration (CAL)"},
- {a:0x2C,n:4,k:"rec",c:"likely",t:"Calibration count",d:"Number of full CAL cycles: 0 on a pack never calibrated, went 1 to 2 across Bat:001's calibration on 14 Aug."},
- {a:0x30,n:4,k:"rec",c:"confirmed",t:"Calibration measurement",d:"Capacity measured by the last CAL cycle (can also be a factory value). Written together with 0x34, 0x74-0x7C and the cell tables."},
- {a:0x34,n:4,k:"rec",c:"hypo",t:"Calibration mirror",d:"Copy of 0x30, but only written by a real field calibration. Blank on packs that never had one."},
- {a:0x74,n:4,k:"rec",c:"hypo",t:"CAL stat 1",d:"Written at calibration. Same value (6427) on both of Bat:001's calibrations. Meaning open."},
- {a:0x78,n:4,k:"dup4",c:"hypo",t:"Cell 9, top of charge?",d:"One byte stored twice, +4000 mV like the top cell table. The tables only hold 8 cells and the pack is 9S, so this may be cell 9."},
- {a:0x7C,n:4,k:"dup3",c:"hypo",t:"Cell 9, bottom of charge?",d:"One byte stored twice, +3000 mV like the bottom cell table. Pairs with 0x78."},
+ {a:0x2C,n:4,k:"rec",c:"confirmed",t:"Calibration count",d:"Number of full CAL cycles. Predicted, then confirmed: Bat:003 went 0 to 1 with its first CAL (5 Oct). Bat:001 is at 2."},
+ {a:0x30,n:4,k:"rec",c:"confirmed",t:"Calibration measurement",d:"Capacity measured by the last CAL cycle, probably in mAh: Bat:003 (label 11.4 Ah) measured 12000. Written together with 0x34, 0x40/0x44, 0x74-0x7C and the cell tables."},
+ {a:0x34,n:4,k:"rec",c:"likely",t:"Calibration mirror",d:"Copy of 0x30, written only by a real CAL cycle: blank on Bat:003 until its first CAL, then 12000 like 0x30."},
+ {a:0x74,n:4,k:"rec",c:"hypo",t:"CAL stat 1",d:"Written at calibration. Two small bytes (23 to 27), maybe temperatures in degrees C during the CAL. Bat:003: 26/26, Bat:001: 27/25."},
+ {a:0x78,n:4,k:"dup4",c:"likely",t:"Cell 9, top of charge",d:"One byte stored twice, +4000 mV like the top cell table. Bat:003's first CAL gave 4055 mV, right inside its other 8 cells (4053-4056), so very likely the 9th cell."},
+ {a:0x7C,n:4,k:"dup3",c:"likely",t:"Cell 9, bottom of charge",d:"One byte stored twice, +3000 mV. Bat:003's first CAL gave 3162 mV, inside its other 8 cells (3162-3164). Pairs with 0x78."},
  {s:"Counters & gauge"},
- {a:0x10,n:4,k:"rec",c:"hypo",t:"Charge events",d:"Rises with use, not only at calibration (+74 on Bat:001 in 7 weeks). Reset to 0 by Recode."},
+ {a:0x10,n:4,k:"rec",c:"unknown",t:"Counter (meaning open)",d:"Not a simple charge counter: jumped 0 to 131 during Bat:003's first CAL cycle, but rose only +74 in 7 weeks on Bat:001. Reset to 0 by Recode."},
  {a:0x40,n:4,k:"rec",c:"hypo",t:"Charge gauge",d:"Moves down and up with use and resets to the 0x30 value when the pack is full."},
  {a:0x44,n:4,k:"rec",c:"hypo",t:"Gauge mirror",d:"Copy of 0x40. The charger writes 0x40, reads it back, then writes the same value here."},
  {a:0x50,n:4,k:"rec",c:"confirmed",t:"Session counter",d:"+1 every time the charger powers up with the pack attached (caught live). Reset to 0 by Recode."},
- {a:0x60,n:4,k:"rec",c:"hypo",t:"Slow counter",d:"Labelled cap_threshold in the tool, but it climbs slowly (356, 358, 365 on Bat:001). Maybe a lifetime cycle count. Recode does not reset it."},
+ {a:0x60,n:4,k:"rec",c:"hypo",t:"Slow counter",d:"Labelled cap_threshold in the tool, but it climbs slowly (356, 358, 365 on Bat:001) and a CAL cycle does not change it. Maybe a lifetime cycle count. Recode does not reset it."},
  {s:"Not yet understood"},
  {a:0x14,n:4,k:"rec",c:"unknown",t:"Unknown",d:"520 on Bat:003 and the R45 pack, blank on Bat:001."},
- {a:0x20,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test, written at calibration. Values differ per pack."},
+ {a:0x20,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. Often two equal bytes: Bat:003 changed 0A FF to 0A 0A at its first CAL; R45 4A 4A."},
  {a:0x38,n:4,k:"rec",c:"unknown",t:"Flag",d:"0 or 1. Was 1 on Bat:001 before its first calibration, 0 since."},
  {a:0x3C,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. 10300 on Bat:003, 12300 on R45, blank on Bat:001."},
- {a:0x48,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. 12000 on Bat:003, 12300 on R45."},
+ {a:0x48,n:4,k:"rec",c:"hypo",t:"Capacity ceiling?",d:"Read by the charger at self-test. 12000 on Bat:003, exactly what its first CAL measured, so maybe the design capacity that a CAL result is capped at. 12300 on R45 (its CAL: 11425)."},
  {a:0x4C,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. 1000 on both newer packs."},
  {a:0x54,n:4,k:"hex",c:"unknown",t:"Unused?",d:"Blank on every pack so far and not read by the charger."},
  {a:0x58,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. Only the R45 pack has a value."},
  {a:0x5C,n:4,k:"rec",c:"unknown",t:"Unknown",d:"Read by the charger at self-test. Only the R45 pack has a value."},
- {a:0x64,n:16,k:"rec",c:"unknown",t:"4-value table",d:"Four rising values, read by the charger. 6000/7000/8000/9000 on Bat:003 (looks like a template), uneven on R45."},
+ {a:0x64,n:16,k:"rec",c:"hypo",t:"Grade thresholds?",d:"Four rising values, read by the charger. Bat:003 6000/7000/8000/9000, R45 7400/8400/9600/10700 = about 50/60/70/80 % of each pack's Ah, which matches the manual's CAP1-4 grade levels. Maybe the mAh a CAL result must reach for each CAP LED."},
  {s:"ID strings (2 ASCII chars per record)"},
  {a:0x80,n:32,k:"ascii",c:"confirmed",t:"Battery serial",d:"The serial printed on the pack label. Odd-length serials get a P pad that is not on the label."},
  {a:0xA0,n:32,k:"ascii",c:"likely",t:"Last charger ID",d:"Rewritten by the charger at every power-on self-test. Bat:003 took the same value as Bat:001 after one charge on the same charger."},
